@@ -5,7 +5,7 @@ import io
 import firebase_admin
 from firebase_admin import credentials, storage
 
-# ================= INIT FIREBASE =================
+# ============ INIT FIREBASE USING SECRETS ============
 if not firebase_admin._apps:
     firebase_creds = {
         "type": st.secrets["firebase"]["type"],
@@ -28,7 +28,6 @@ if not firebase_admin._apps:
 
 bucket = storage.bucket()
 
-# ================= FUNCTIONS =================
 def upload_csv(file_bytes, path):
     blob = bucket.blob(path)
     blob.upload_from_file(file_bytes, content_type="text/csv")
