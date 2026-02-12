@@ -14,7 +14,8 @@ if not firebase_admin._apps:
     firebase_admin.initialize_app(
         cred,
         {
-            "storageBucket": f"{st.secrets['firebase']['project_id']}.appspot.com"
+           "storageBucket": st.secrets["firebase"]["faceattendance-8429c.firebasestorage.app"]
+
         },
     )
 
