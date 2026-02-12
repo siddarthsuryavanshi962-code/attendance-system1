@@ -93,26 +93,21 @@ if page == "Live Attendance":
         st.warning("Attendance or student data missing")
         st.stop()
 
-    # Normalize column names
     attendance.columns = attendance.columns.str.lower().str.strip()
     students.columns = students.columns.str.lower().str.strip()
 
-    # Auto-detect required columns safely
-    try:
-        att_roll_col = next(c for c in attendance.columns if "roll" in c)
-        att_time_col = next(c for c in attendance.columns if "time" in c)
+    # Detect columns
+    att_roll_col = next(c for c in attendance.columns if "roll" in c)
+    att_time_col = next(c for c in attendance.columns if "time" in c)
 
-        stu_roll_col = next(c for c in students.columns if "roll" in c)
-        stu_name_col = next(c for c in students.columns if "name" in c)
-    except StopIteration:
-        st.error("Required columns not found in CSV files")
-        st.stop()
+    stu_roll_col = next(c for c in students.columns if "roll" in c)
+    stu_name_col = next(c for c in students.columns if "name" in c)
 
-    # Convert roll columns to STRING (CRITICAL FIX)
+    # Convert roll to string (IMPORTANT)
     attendance[att_roll_col] = attendance[att_roll_col].astype(str)
     students[stu_roll_col] = students[stu_roll_col].astype(str)
 
-    # Convert time column safely
+    # Convert time
     attendance["parsed_time"] = pd.to_datetime(
         attendance[att_time_col],
         errors="coerce"
@@ -124,7 +119,7 @@ if page == "Live Attendance":
         st.info("No attendance recorded today.")
         st.stop()
 
-    # Merge safely
+    # Merge
     merged = attendance.merge(
         students,
         left_on=att_roll_col,
@@ -132,10 +127,18 @@ if page == "Live Attendance":
         how="left"
     )
 
-    # Sort latest first
+    # FIX: Get correct name column after merge
+    possible_name_cols = [col for col in merged.columns if "name" in col]
+
+    if not possible_name_cols:
+        st.error("Name column not found after merge")
+        st.stop()
+
+    name_col_after_merge = possible_name_cols[0]
+
     merged = merged.sort_values(by="parsed_time", ascending=False)
 
-    # Prepare timetable mapping
+    # Timetable handling
     subject_map = []
 
     if timetable is not None:
@@ -164,16 +167,15 @@ if page == "Live Attendance":
         entry_time = row["parsed_time"].time()
         subject_found = None
 
-        # After 3:30 PM → no subject
+        # Show subject only before 3:30 PM
         if entry_time <= time(15, 30):
-
             for lec in subject_map:
                 if lec["start"] <= entry_time <= lec["end"]:
                     subject_found = lec["subject"]
                     break
 
         record = {
-            "Student Name": row.get(stu_name_col, "Unknown"),
+            "Student Name": row[name_col_after_merge],
             "Time": row["parsed_time"].strftime("%H:%M:%S")
         }
 
@@ -194,6 +196,7 @@ if page == "Live Attendance":
     )
 
     st.stop()
+
 
 
 
