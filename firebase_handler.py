@@ -14,7 +14,7 @@ if not firebase_admin._apps:
     firebase_admin.initialize_app(
         cred,
         {
-            "storageBucket": st.secrets["firebase"]["bucket_name"]
+            "storageBucket": st.secrets["firebase"]["storageBucket"]
         },
     )
 bucket = storage.bucket()
