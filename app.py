@@ -49,6 +49,7 @@ page = st.sidebar.radio(
     "Navigation",
     [
         "Dashboard",
+        "Live Attendance",
         "Monthly Attendance",
         "View Timetable",
         "Timetable Management",
@@ -70,6 +71,84 @@ if st.sidebar.button("Logout"):
     st.session_state.role = None
     st.session_state.year = None
     st.rerun()
+# =================================================
+# ================= LIVE ATTENDANCE ===============
+# =================================================
+if page == "Live Attendance (30 Min)":
+
+    st.title(f"🔴 Live Attendance (30 Min Window) – {year}")
+
+    # Manual Refresh Button
+    if st.button("🔄 Refresh Now"):
+        st.rerun()
+
+    sel_date = date.today()
+    date_str = sel_date.strftime("%Y-%m-%d")
+
+    attendance = read_csv(f"attendance/{date_str}/{year}.csv")
+    students = read_csv(f"students/students_{year}.csv")
+    timetable = read_csv(f"timetable/{year}_timetable.csv")
+
+    if attendance is None or students is None or timetable is None:
+        st.warning("Required data missing")
+        st.stop()
+
+    attendance.columns = attendance.columns.str.lower()
+    students.columns = students.columns.str.lower()
+    timetable.columns = timetable.columns.str.lower()
+
+    att_roll_col = next(c for c in attendance.columns if "roll" in c)
+    stu_roll_col = next(c for c in students.columns if "roll" in c)
+    stu_name_col = next(c for c in students.columns if "name" in c)
+
+    attendance["time"] = pd.to_datetime(attendance["time"], errors="coerce")
+    timetable["start"] = pd.to_datetime(timetable["start"]).dt.time
+    timetable["end"] = pd.to_datetime(timetable["end"]).dt.time
+
+    now = datetime.now()
+    last_30_min = now - pd.Timedelta(minutes=30)
+
+    # Subject selection
+    subject_list = timetable["subject"].unique()
+    selected_subject = st.selectbox("Select Subject", subject_list)
+
+    records = []
+
+    for _, lec in timetable.iterrows():
+
+        if lec["subject"] != selected_subject:
+            continue
+
+        for _, stu in students.iterrows():
+
+            present = attendance[
+                (attendance[att_roll_col].astype(str) == str(stu[stu_roll_col])) &
+                (attendance["time"] >= last_30_min) &
+                (attendance["time"] <= now)
+            ]
+
+            records.append({
+                "Roll": stu[stu_roll_col],
+                "Name": stu[stu_name_col],
+                "Subject": selected_subject,
+                "Status": "Present" if not present.empty else "Absent"
+            })
+
+    live_df = pd.DataFrame(records)
+
+    st.success(f"Showing Live Attendance from {last_30_min.strftime('%H:%M')} to {now.strftime('%H:%M')}")
+
+    st.dataframe(live_df, use_container_width=True)
+
+    st.download_button(
+        "⬇️ Download Live Attendance",
+        live_df.to_csv(index=False).encode(),
+        f"{year}_{date_str}_live_attendance.csv",
+        "text/csv"
+    )
+
+    st.stop()
+
 
 # =================================================
 # ================= VIEW STUDENTS ==================
