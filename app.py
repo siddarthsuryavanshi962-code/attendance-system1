@@ -77,27 +77,24 @@ if st.sidebar.button("Logout"):
 # =================================================
 if page == "Live Attendance":
 
-    st.title(f"🔴 Live Attendance (Last 30 Minutes) – {year}")
+    st.title(f"🔴 Live Attendance – {year}")
+
+    if st.button("🔄 Refresh"):
+        st.rerun()
 
     sel_date = date.today()
     date_str = sel_date.strftime("%Y-%m-%d")
 
     attendance = read_csv(f"attendance/{date_str}/{year}.csv")
     students = read_csv(f"students/students_{year}.csv")
+    timetable = read_csv(f"timetable/{year}_timetable.csv")
 
-    if attendance is None:
-        st.error("Attendance file not found in Firebase")
-        st.stop()
-
-    if students is None:
-        st.error("Students file not found")
+    if attendance is None or students is None:
+        st.warning("Attendance or student data missing")
         st.stop()
 
     attendance.columns = attendance.columns.str.lower()
     students.columns = students.columns.str.lower()
-
-    st.write("📂 Attendance Raw Data:")
-    st.dataframe(attendance)
 
     att_roll_col = next(c for c in attendance.columns if "roll" in c)
     att_time_col = next(c for c in attendance.columns if "time" in c)
@@ -105,45 +102,80 @@ if page == "Live Attendance":
     stu_roll_col = next(c for c in students.columns if "roll" in c)
     stu_name_col = next(c for c in students.columns if "name" in c)
 
-    # Convert properly
+    # Convert attendance time
     attendance["parsed_time"] = pd.to_datetime(
         attendance[att_time_col],
         errors="coerce"
     )
 
-    st.write("⏱ Parsed Times:")
-    st.write(attendance["parsed_time"])
+    attendance = attendance.dropna(subset=["parsed_time"])
 
-    now = pd.Timestamp.now()
-    last_30_min = now - pd.Timedelta(minutes=30)
-
-    st.write("🕒 Server Time:", now)
-
-    recent = attendance[
-        (attendance["parsed_time"] >= last_30_min) &
-        (attendance["parsed_time"] <= now)
-    ]
-
-    st.write("Filtered Records:")
-    st.write(recent)
-
-    if recent.empty:
-        st.warning("No records found in last 30 minutes.")
+    if attendance.empty:
+        st.info("No attendance recorded today.")
         st.stop()
 
-    merged = recent.merge(
+    # Merge student names
+    merged = attendance.merge(
         students,
         left_on=att_roll_col,
         right_on=stu_roll_col,
         how="left"
     )
 
-    live_df = pd.DataFrame({
-        "Student Name": merged[stu_name_col],
-        "Time": merged["parsed_time"].dt.strftime("%H:%M:%S")
-    })
+    # Sort latest first
+    merged = merged.sort_values(by="parsed_time", ascending=False)
+
+    # Convert timetable times
+    subject_map = []
+    if timetable is not None:
+        timetable.columns = timetable.columns.str.lower()
+        timetable["start"] = pd.to_datetime(timetable["start"]).dt.time
+        timetable["end"] = pd.to_datetime(timetable["end"]).dt.time
+
+        for _, lec in timetable.iterrows():
+            subject_map.append({
+                "subject": lec["subject"],
+                "start": lec["start"],
+                "end": lec["end"]
+            })
+
+    final_records = []
+
+    for _, row in merged.iterrows():
+
+        entry_time = row["parsed_time"].time()
+        subject_found = None
+
+        # Check if entry time falls inside lecture
+        for lec in subject_map:
+            if lec["start"] <= entry_time <= lec["end"]:
+                subject_found = lec["subject"]
+                break
+
+        # After 3:30 PM → no subject
+        if entry_time > time(15, 30):
+            subject_found = None
+
+        record = {
+            "Student Name": row[stu_name_col],
+            "Time": row["parsed_time"].strftime("%H:%M:%S")
+        }
+
+        if subject_found:
+            record["Subject"] = subject_found
+
+        final_records.append(record)
+
+    live_df = pd.DataFrame(final_records)
 
     st.dataframe(live_df, use_container_width=True)
+
+    st.download_button(
+        "⬇️ Download Live Attendance",
+        live_df.to_csv(index=False).encode(),
+        f"{year}_{date_str}_live_attendance.csv",
+        "text/csv"
+    )
 
     st.stop()
 
