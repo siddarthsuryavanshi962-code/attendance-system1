@@ -49,6 +49,7 @@ page = st.sidebar.radio(
     "Navigation",
     [
         "Dashboard",
+        "Live Attendance (30 Min)",
         "Monthly Attendance",
         "View Timetable",
         "Timetable Management",
@@ -72,135 +73,83 @@ if st.sidebar.button("Logout"):
     st.rerun()
 
 # =================================================
-# ================= VIEW STUDENTS ==================
+# ================= LIVE ATTENDANCE ===============
 # =================================================
-if page == "View Students":
-    st.title(f"👨‍🎓 Students – {year}")
+if page == "Live Attendance (30 Min)":
 
+    st.title(f"🔴 Live Attendance (Last 30 Minutes) – {year}")
+
+    if st.button("🔄 Refresh Now"):
+        st.rerun()
+
+    today = date.today()
+    date_str = today.strftime("%Y-%m-%d")
+
+    attendance = read_csv(f"attendance/{date_str}/{year}.csv")
     students = read_csv(f"students/students_{year}.csv")
-    if students is None:
-        st.warning("No students found")
-        st.stop()
-
-    st.dataframe(students, use_container_width=True)
-    st.stop()
-
-# =================================================
-# ================= VIEW TIMETABLE =================
-# =================================================
-if page == "View Timetable":
-    st.title(f"📅 Timetable – {year}")
-
     timetable = read_csv(f"timetable/{year}_timetable.csv")
-    if timetable is None:
-        st.warning("No timetable found")
+
+    if attendance is None or students is None or timetable is None:
+        st.warning("Required data missing")
         st.stop()
 
-    st.dataframe(timetable, use_container_width=True)
-    st.stop()
+    attendance.columns = attendance.columns.str.lower()
+    students.columns = students.columns.str.lower()
+    timetable.columns = timetable.columns.str.lower()
 
-# =================================================
-# ================= UPLOAD STUDENTS =================
-# =================================================
-if page == "Upload Students CSV":
-    st.title(f"⬆️ Upload Students CSV – {year}")
+    att_roll = next(c for c in attendance.columns if "roll" in c)
+    stu_roll = next(c for c in students.columns if "roll" in c)
+    stu_name = next(c for c in students.columns if "name" in c)
 
-    file = st.file_uploader("Upload CSV", type=["csv"])
-    if file:
-        df = pd.read_csv(file)
-        df.columns = df.columns.str.lower().str.strip()
+    attendance["time"] = pd.to_datetime(attendance["time"], errors="coerce")
 
-        if not any("roll" in c for c in df.columns) or not any("name" in c for c in df.columns):
-            st.error("CSV must contain Roll and Name columns")
-            st.stop()
+    now = datetime.now()
+    last_30 = now - pd.Timedelta(minutes=30)
 
-        st.dataframe(df)
+    subjects = timetable["subject"].unique()
+    selected_subject = st.selectbox("Select Subject", subjects)
 
-        if st.button("Upload"):
-            upload_csv(
-                io.BytesIO(df.to_csv(index=False).encode()),
-                f"students/students_{year}.csv"
-            )
-            st.success("Students uploaded")
+    records = []
 
-    st.stop()
+    for _, stu in students.iterrows():
 
-# =================================================
-# ================= ADD STUDENT =====================
-# =================================================
-if page == "Add Student (Manual)":
-    st.title(f"➕ Add Student – {year}")
+        present = attendance[
+            (attendance[att_roll].astype(str) == str(stu[stu_roll])) &
+            (attendance["time"] >= last_30) &
+            (attendance["time"] <= now)
+        ]
 
-    roll = st.text_input("Roll Number")
-    name = st.text_input("Student Name")
+        records.append({
+            "Roll": stu[stu_roll],
+            "Name": stu[stu_name],
+            "Subject": selected_subject,
+            "Status": "Present" if not present.empty else "Absent"
+        })
 
-    if st.button("Add Student"):
-        if not roll or not name:
-            st.error("All fields required")
-            st.stop()
+    live_df = pd.DataFrame(records)
 
-        path = f"students/students_{year}.csv"
-        old = read_csv(path)
+    st.success(f"Showing from {last_30.strftime('%H:%M')} to {now.strftime('%H:%M')}")
 
-        new = pd.DataFrame([{"Roll": roll.strip(), "Name": name.strip()}])
+    st.dataframe(live_df, use_container_width=True)
 
-        if old is not None:
-            old.columns = old.columns.str.lower()
-            if roll.strip() in old.iloc[:, 0].astype(str).values:
-                st.error("Roll already exists")
-                st.stop()
-            new = pd.concat([old, new], ignore_index=True)
-
-        upload_csv(io.BytesIO(new.to_csv(index=False).encode()), path)
-        st.success("Student added")
+    st.download_button(
+        "⬇️ Download Live Attendance",
+        live_df.to_csv(index=False).encode(),
+        f"{year}_{date_str}_live_attendance.csv",
+        "text/csv"
+    )
 
     st.stop()
 
 # =================================================
-# ================= TIMETABLE ADD ===================
-# =================================================
-if page == "Timetable Management":
-    st.title(f"🛠 Timetable Management – {year}")
-
-    day = st.selectbox("Day", ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"])
-    subject = st.text_input("Subject")
-    faculty = st.text_input("Faculty")
-
-    c1, c2 = st.columns(2)
-    start = c1.time_input("Start Time", time(8, 30))
-    end = c2.time_input("End Time", time(9, 30))
-
-    if st.button("Add Lecture"):
-        if start >= end:
-            st.error("Invalid time")
-            st.stop()
-
-        row = pd.DataFrame([{
-            "Day": day,
-            "Subject": subject,
-            "Faculty": faculty,
-            "Start": start.strftime("%H:%M"),
-            "End": end.strftime("%H:%M"),
-        }])
-
-        path = f"timetable/{year}_timetable.csv"
-        old = read_csv(path)
-        if old is not None:
-            row = pd.concat([old, row], ignore_index=True)
-
-        upload_csv(io.BytesIO(row.to_csv(index=False).encode()), path)
-        st.success("Lecture added")
-
-    st.stop()
-
-# =================================================
-# ================= MONTHLY ATTENDANCE ==============
+# ================= MONTHLY ATTENDANCE =============
 # =================================================
 if page == "Monthly Attendance":
+
     st.title(f"📆 Monthly Attendance – {year}")
 
     col1, col2 = st.columns(2)
-    sel_year = col1.number_input("Year", min_value=2020, max_value=2100, value=datetime.today().year)
+    sel_year = col1.number_input("Year", 2020, 2100, datetime.today().year)
     sel_month = col2.selectbox("Month", list(range(1, 13)))
 
     students = read_csv(f"students/students_{year}.csv")
@@ -213,14 +162,13 @@ if page == "Monthly Attendance":
     name_col = next(c for c in students.columns if "name" in c)
 
     summary = []
-
-    days_in_month = calendar.monthrange(sel_year, sel_month)[1]
+    days = calendar.monthrange(sel_year, sel_month)[1]
 
     for _, stu in students.iterrows():
         present_days = 0
         total_days = 0
 
-        for d in range(1, days_in_month + 1):
+        for d in range(1, days + 1):
             dt = date(sel_year, sel_month, d)
             date_str = dt.strftime("%Y-%m-%d")
 
@@ -235,7 +183,7 @@ if page == "Monthly Attendance":
             if str(stu[roll_col]) in att[att_roll].astype(str).values:
                 present_days += 1
 
-        percent = (present_days / total_days * 100) if total_days > 0 else 0
+        percent = (present_days / total_days * 100) if total_days else 0
 
         summary.append({
             "Roll": stu[roll_col],
@@ -277,9 +225,9 @@ attendance.columns = attendance.columns.str.lower()
 students.columns = students.columns.str.lower()
 timetable.columns = timetable.columns.str.lower()
 
-att_roll_col = next(c for c in attendance.columns if "roll" in c)
-stu_roll_col = next(c for c in students.columns if "roll" in c)
-stu_name_col = next(c for c in students.columns if "name" in c)
+att_roll = next(c for c in attendance.columns if "roll" in c)
+stu_roll = next(c for c in students.columns if "roll" in c)
+stu_name = next(c for c in students.columns if "name" in c)
 
 attendance["time"] = pd.to_datetime(attendance["time"], errors="coerce").dt.time
 timetable["start"] = pd.to_datetime(timetable["start"]).dt.time
@@ -291,15 +239,14 @@ for _, lec in timetable.iterrows():
     for _, stu in students.iterrows():
 
         present = attendance[
-            (attendance[att_roll_col].astype(str) == str(stu[stu_roll_col])) &
+            (attendance[att_roll].astype(str) == str(stu[stu_roll])) &
             (attendance["time"] >= lec["start"]) &
             (attendance["time"] <= lec["end"])
         ]
 
         records.append({
-            "Roll": stu[stu_roll_col],
-            "Name": stu[stu_name_col],
-            "Day": lec["day"],
+            "Roll": stu[stu_roll],
+            "Name": stu[stu_name],
             "Subject": lec["subject"],
             "Faculty": lec["faculty"],
             "Status": "Present" if not present.empty else "Absent"

@@ -1,43 +1,40 @@
-import streamlit as st
-import pandas as pd
-import io
-
 import firebase_admin
 from firebase_admin import credentials, storage
+import firebase_admin
+import os
 
-# ============ INIT FIREBASE USING SECRETS ============
+# ===============================
+# LOCAL FIREBASE INITIALIZATION
+# ===============================
+
 if not firebase_admin._apps:
-    firebase_creds = {
-        "type": st.secrets["firebase"]["type"],
-        "project_id": st.secrets["firebase"]["project_id"],
-        "private_key_id": st.secrets["firebase"]["private_key_id"],
-        "private_key": st.secrets["firebase"]["private_key"].replace("\\n", "\n"),
-        "client_email": st.secrets["firebase"]["client_email"],
-        "client_id": st.secrets["firebase"]["client_id"],
-        "auth_uri": st.secrets["firebase"]["auth_uri"],
-        "token_uri": st.secrets["firebase"]["token_uri"],
-        "auth_provider_x509_cert_url": st.secrets["firebase"]["auth_provider_x509_cert_url"],
-        "client_x509_cert_url": st.secrets["firebase"]["client_x509_cert_url"],
-    }
 
-    cred = credentials.Certificate(firebase_creds)
-    firebase_admin.initialize_app(
-        cred,
-        {"storageBucket": st.secrets["firebase"]["storageBucket"]}
-    )
+    cred = credentials.Certificate("firebase_key.json")  # <-- keep this file in same folder
+
+    firebase_admin.initialize_app(cred, {
+        'storageBucket': 'faceattendance-8429c.firebasestorage.app'  # replace with your bucket name
+    })
 
 bucket = storage.bucket()
 
-def upload_csv(file_bytes, path):
-    blob = bucket.blob(path)
-    blob.upload_from_file(file_bytes, content_type="text/csv")
 
+# ===============================
+# READ CSV FROM FIREBASE STORAGE
+# ===============================
 def read_csv(path):
     try:
         blob = bucket.blob(path)
-        if not blob.exists():
-            return None
         data = blob.download_as_bytes()
-        return pd.read_csv(io.BytesIO(data))
-    except Exception:
+        import pandas as pd
+        from io import BytesIO
+        return pd.read_csv(BytesIO(data))
+    except:
         return None
+
+
+# ===============================
+# UPLOAD CSV TO FIREBASE STORAGE
+# ===============================
+def upload_csv(file_bytes, path):
+    blob = bucket.blob(path)
+    blob.upload_from_file(file_bytes, content_type="text/csv")
