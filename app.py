@@ -93,16 +93,26 @@ if page == "Live Attendance":
         st.warning("Attendance or student data missing")
         st.stop()
 
-    attendance.columns = attendance.columns.str.lower()
-    students.columns = students.columns.str.lower()
+    # Normalize column names
+    attendance.columns = attendance.columns.str.lower().str.strip()
+    students.columns = students.columns.str.lower().str.strip()
 
-    att_roll_col = next(c for c in attendance.columns if "roll" in c)
-    att_time_col = next(c for c in attendance.columns if "time" in c)
+    # Auto-detect required columns safely
+    try:
+        att_roll_col = next(c for c in attendance.columns if "roll" in c)
+        att_time_col = next(c for c in attendance.columns if "time" in c)
 
-    stu_roll_col = next(c for c in students.columns if "roll" in c)
-    stu_name_col = next(c for c in students.columns if "name" in c)
+        stu_roll_col = next(c for c in students.columns if "roll" in c)
+        stu_name_col = next(c for c in students.columns if "name" in c)
+    except StopIteration:
+        st.error("Required columns not found in CSV files")
+        st.stop()
 
-    # Convert attendance time
+    # Convert roll columns to STRING (CRITICAL FIX)
+    attendance[att_roll_col] = attendance[att_roll_col].astype(str)
+    students[stu_roll_col] = students[stu_roll_col].astype(str)
+
+    # Convert time column safely
     attendance["parsed_time"] = pd.to_datetime(
         attendance[att_time_col],
         errors="coerce"
@@ -114,7 +124,7 @@ if page == "Live Attendance":
         st.info("No attendance recorded today.")
         st.stop()
 
-    # Merge student names
+    # Merge safely
     merged = attendance.merge(
         students,
         left_on=att_roll_col,
@@ -125,19 +135,27 @@ if page == "Live Attendance":
     # Sort latest first
     merged = merged.sort_values(by="parsed_time", ascending=False)
 
-    # Convert timetable times
+    # Prepare timetable mapping
     subject_map = []
-    if timetable is not None:
-        timetable.columns = timetable.columns.str.lower()
-        timetable["start"] = pd.to_datetime(timetable["start"]).dt.time
-        timetable["end"] = pd.to_datetime(timetable["end"]).dt.time
 
-        for _, lec in timetable.iterrows():
-            subject_map.append({
-                "subject": lec["subject"],
-                "start": lec["start"],
-                "end": lec["end"]
-            })
+    if timetable is not None:
+        timetable.columns = timetable.columns.str.lower().str.strip()
+
+        if "start" in timetable.columns and "end" in timetable.columns:
+            timetable["start"] = pd.to_datetime(
+                timetable["start"], errors="coerce"
+            ).dt.time
+            timetable["end"] = pd.to_datetime(
+                timetable["end"], errors="coerce"
+            ).dt.time
+
+            for _, lec in timetable.iterrows():
+                if pd.notna(lec["start"]) and pd.notna(lec["end"]):
+                    subject_map.append({
+                        "subject": lec.get("subject", ""),
+                        "start": lec["start"],
+                        "end": lec["end"]
+                    })
 
     final_records = []
 
@@ -146,18 +164,16 @@ if page == "Live Attendance":
         entry_time = row["parsed_time"].time()
         subject_found = None
 
-        # Check if entry time falls inside lecture
-        for lec in subject_map:
-            if lec["start"] <= entry_time <= lec["end"]:
-                subject_found = lec["subject"]
-                break
-
         # After 3:30 PM → no subject
-        if entry_time > time(15, 30):
-            subject_found = None
+        if entry_time <= time(15, 30):
+
+            for lec in subject_map:
+                if lec["start"] <= entry_time <= lec["end"]:
+                    subject_found = lec["subject"]
+                    break
 
         record = {
-            "Student Name": row[stu_name_col],
+            "Student Name": row.get(stu_name_col, "Unknown"),
             "Time": row["parsed_time"].strftime("%H:%M:%S")
         }
 
@@ -178,6 +194,7 @@ if page == "Live Attendance":
     )
 
     st.stop()
+
 
 
 
