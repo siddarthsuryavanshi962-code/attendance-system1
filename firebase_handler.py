@@ -14,11 +14,9 @@ if not firebase_admin._apps:
     firebase_admin.initialize_app(
         cred,
         {
-           "storageBucket": st.secrets["firebase"]["faceattendance-8429c.firebasestorage.app"]
-
+            "storageBucket": st.secrets["firebase"]["bucket_name"]
         },
     )
-
 bucket = storage.bucket()
 
 # =====================================================
