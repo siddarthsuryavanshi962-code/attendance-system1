@@ -77,7 +77,7 @@ if st.sidebar.button("Logout"):
 # =================================================
 if page == "Live Attendance":
 
-    st.title(f"🔴 Live Attendance (30 Min Window) – {year}")
+    st.title(f"🔴 Live Attendance (Last 30 Minutes) – {year}")
 
     if st.button("🔄 Refresh Now"):
         st.rerun()
@@ -87,49 +87,50 @@ if page == "Live Attendance":
 
     attendance = read_csv(f"attendance/{date_str}/{year}.csv")
     students = read_csv(f"students/students_{year}.csv")
-    timetable = read_csv(f"timetable/{year}_timetable.csv")
 
-    if attendance is None or students is None or timetable is None:
+    if attendance is None or students is None:
         st.warning("Required data missing")
         st.stop()
 
     attendance.columns = attendance.columns.str.lower()
     students.columns = students.columns.str.lower()
-    timetable.columns = timetable.columns.str.lower()
 
     att_roll_col = next(c for c in attendance.columns if "roll" in c)
+    att_time_col = next(c for c in attendance.columns if "time" in c)
+
     stu_roll_col = next(c for c in students.columns if "roll" in c)
     stu_name_col = next(c for c in students.columns if "name" in c)
 
-    attendance["time"] = pd.to_datetime(attendance["time"], errors="coerce")
+    attendance["time"] = pd.to_datetime(attendance[att_time_col], errors="coerce")
 
     now = datetime.now()
     last_30_min = now - pd.Timedelta(minutes=30)
 
-    subject_list = timetable["subject"].unique()
-    selected_subject = st.selectbox("Select Subject", subject_list)
+    # Filter only last 30 min records
+    recent = attendance[
+        (attendance["time"] >= last_30_min) &
+        (attendance["time"] <= now)
+    ]
 
-    records = []
+    if recent.empty:
+        st.info("No attendance recorded in last 30 minutes.")
+        st.stop()
 
-    for _, stu in students.iterrows():
+    # Merge to get student names
+    merged = recent.merge(
+        students,
+        left_on=att_roll_col,
+        right_on=stu_roll_col,
+        how="left"
+    )
 
-        present = attendance[
-            (attendance[att_roll_col].astype(str) == str(stu[stu_roll_col])) &
-            (attendance["time"] >= last_30_min) &
-            (attendance["time"] <= now)
-        ]
-
-        records.append({
-            "Roll": stu[stu_roll_col],
-            "Name": stu[stu_name_col],
-            "Subject": selected_subject,
-            "Status": "Present" if not present.empty else "Absent"
-        })
-
-    live_df = pd.DataFrame(records)
+    live_df = pd.DataFrame({
+        "Student Name": merged[stu_name_col],
+        "Time": merged["time"].dt.strftime("%H:%M:%S")
+    })
 
     st.success(
-        f"Showing Live Attendance from "
+        f"Showing records from "
         f"{last_30_min.strftime('%H:%M')} to {now.strftime('%H:%M')}"
     )
 
@@ -143,6 +144,7 @@ if page == "Live Attendance":
     )
 
     st.stop()
+
 
 # =================================================
 # ================= VIEW STUDENTS ==================
