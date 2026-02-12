@@ -71,14 +71,14 @@ if st.sidebar.button("Logout"):
     st.session_state.role = None
     st.session_state.year = None
     st.rerun()
+
 # =================================================
 # ================= LIVE ATTENDANCE ===============
 # =================================================
-if page == "Live Attendance (30 Min)":
+if page == "Live Attendance":
 
     st.title(f"🔴 Live Attendance (30 Min Window) – {year}")
 
-    # Manual Refresh Button
     if st.button("🔄 Refresh Now"):
         st.rerun()
 
@@ -102,41 +102,36 @@ if page == "Live Attendance (30 Min)":
     stu_name_col = next(c for c in students.columns if "name" in c)
 
     attendance["time"] = pd.to_datetime(attendance["time"], errors="coerce")
-    timetable["start"] = pd.to_datetime(timetable["start"]).dt.time
-    timetable["end"] = pd.to_datetime(timetable["end"]).dt.time
 
     now = datetime.now()
     last_30_min = now - pd.Timedelta(minutes=30)
 
-    # Subject selection
     subject_list = timetable["subject"].unique()
     selected_subject = st.selectbox("Select Subject", subject_list)
 
     records = []
 
-    for _, lec in timetable.iterrows():
+    for _, stu in students.iterrows():
 
-        if lec["subject"] != selected_subject:
-            continue
+        present = attendance[
+            (attendance[att_roll_col].astype(str) == str(stu[stu_roll_col])) &
+            (attendance["time"] >= last_30_min) &
+            (attendance["time"] <= now)
+        ]
 
-        for _, stu in students.iterrows():
-
-            present = attendance[
-                (attendance[att_roll_col].astype(str) == str(stu[stu_roll_col])) &
-                (attendance["time"] >= last_30_min) &
-                (attendance["time"] <= now)
-            ]
-
-            records.append({
-                "Roll": stu[stu_roll_col],
-                "Name": stu[stu_name_col],
-                "Subject": selected_subject,
-                "Status": "Present" if not present.empty else "Absent"
-            })
+        records.append({
+            "Roll": stu[stu_roll_col],
+            "Name": stu[stu_name_col],
+            "Subject": selected_subject,
+            "Status": "Present" if not present.empty else "Absent"
+        })
 
     live_df = pd.DataFrame(records)
 
-    st.success(f"Showing Live Attendance from {last_30_min.strftime('%H:%M')} to {now.strftime('%H:%M')}")
+    st.success(
+        f"Showing Live Attendance from "
+        f"{last_30_min.strftime('%H:%M')} to {now.strftime('%H:%M')}"
+    )
 
     st.dataframe(live_df, use_container_width=True)
 
@@ -148,7 +143,6 @@ if page == "Live Attendance (30 Min)":
     )
 
     st.stop()
-
 
 # =================================================
 # ================= VIEW STUDENTS ==================
@@ -179,107 +173,16 @@ if page == "View Timetable":
     st.stop()
 
 # =================================================
-# ================= UPLOAD STUDENTS =================
-# =================================================
-if page == "Upload Students CSV":
-    st.title(f"⬆️ Upload Students CSV – {year}")
-
-    file = st.file_uploader("Upload CSV", type=["csv"])
-    if file:
-        df = pd.read_csv(file)
-        df.columns = df.columns.str.lower().str.strip()
-
-        if not any("roll" in c for c in df.columns) or not any("name" in c for c in df.columns):
-            st.error("CSV must contain Roll and Name columns")
-            st.stop()
-
-        st.dataframe(df)
-
-        if st.button("Upload"):
-            upload_csv(
-                io.BytesIO(df.to_csv(index=False).encode()),
-                f"students/students_{year}.csv"
-            )
-            st.success("Students uploaded")
-
-    st.stop()
-
-# =================================================
-# ================= ADD STUDENT =====================
-# =================================================
-if page == "Add Student (Manual)":
-    st.title(f"➕ Add Student – {year}")
-
-    roll = st.text_input("Roll Number")
-    name = st.text_input("Student Name")
-
-    if st.button("Add Student"):
-        if not roll or not name:
-            st.error("All fields required")
-            st.stop()
-
-        path = f"students/students_{year}.csv"
-        old = read_csv(path)
-
-        new = pd.DataFrame([{"Roll": roll.strip(), "Name": name.strip()}])
-
-        if old is not None:
-            old.columns = old.columns.str.lower()
-            if roll.strip() in old.iloc[:, 0].astype(str).values:
-                st.error("Roll already exists")
-                st.stop()
-            new = pd.concat([old, new], ignore_index=True)
-
-        upload_csv(io.BytesIO(new.to_csv(index=False).encode()), path)
-        st.success("Student added")
-
-    st.stop()
-
-# =================================================
-# ================= TIMETABLE ADD ===================
-# =================================================
-if page == "Timetable Management":
-    st.title(f"🛠 Timetable Management – {year}")
-
-    day = st.selectbox("Day", ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"])
-    subject = st.text_input("Subject")
-    faculty = st.text_input("Faculty")
-
-    c1, c2 = st.columns(2)
-    start = c1.time_input("Start Time", time(8, 30))
-    end = c2.time_input("End Time", time(9, 30))
-
-    if st.button("Add Lecture"):
-        if start >= end:
-            st.error("Invalid time")
-            st.stop()
-
-        row = pd.DataFrame([{
-            "Day": day,
-            "Subject": subject,
-            "Faculty": faculty,
-            "Start": start.strftime("%H:%M"),
-            "End": end.strftime("%H:%M"),
-        }])
-
-        path = f"timetable/{year}_timetable.csv"
-        old = read_csv(path)
-        if old is not None:
-            row = pd.concat([old, row], ignore_index=True)
-
-        upload_csv(io.BytesIO(row.to_csv(index=False).encode()), path)
-        st.success("Lecture added")
-
-    st.stop()
-
-# =================================================
 # ================= MONTHLY ATTENDANCE ==============
 # =================================================
 if page == "Monthly Attendance":
+
     st.title(f"📆 Monthly Attendance – {year}")
 
     col1, col2 = st.columns(2)
-    sel_year = col1.number_input("Year", min_value=2020, max_value=2100, value=datetime.today().year)
+    sel_year = col1.number_input(
+        "Year", min_value=2020, max_value=2100, value=datetime.today().year
+    )
     sel_month = col2.selectbox("Month", list(range(1, 13)))
 
     students = read_csv(f"students/students_{year}.csv")
@@ -292,7 +195,6 @@ if page == "Monthly Attendance":
     name_col = next(c for c in students.columns if "name" in c)
 
     summary = []
-
     days_in_month = calendar.monthrange(sel_year, sel_month)[1]
 
     for _, stu in students.iterrows():
@@ -325,6 +227,7 @@ if page == "Monthly Attendance":
         })
 
     df = pd.DataFrame(summary)
+
     st.dataframe(df, use_container_width=True)
 
     st.download_button(
@@ -360,7 +263,10 @@ att_roll_col = next(c for c in attendance.columns if "roll" in c)
 stu_roll_col = next(c for c in students.columns if "roll" in c)
 stu_name_col = next(c for c in students.columns if "name" in c)
 
-attendance["time"] = pd.to_datetime(attendance["time"], errors="coerce").dt.time
+attendance["time"] = pd.to_datetime(
+    attendance["time"], errors="coerce"
+).dt.time
+
 timetable["start"] = pd.to_datetime(timetable["start"]).dt.time
 timetable["end"] = pd.to_datetime(timetable["end"]).dt.time
 
@@ -385,6 +291,7 @@ for _, lec in timetable.iterrows():
         })
 
 final_df = pd.DataFrame(records)
+
 st.dataframe(final_df, use_container_width=True)
 
 st.download_button(
